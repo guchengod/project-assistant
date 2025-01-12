@@ -98,23 +98,36 @@ class MyToolWindowFactory : ToolWindowFactory {
                 // 输入区域
                 val inputPanel = JBPanel<JBPanel<*>>().apply {
                     layout = BorderLayout(5, 5)
-                    val inputField = JBTextArea(3, 20).apply {
-                        lineWrap = true
-                        wrapStyleWord = true
-                    }
-                    add(JBScrollPane(inputField), BorderLayout.CENTER)
                     
-                    val buttonPanel = JBPanel<JBPanel<*>>().apply {
-                        layout = FlowLayout(FlowLayout.RIGHT)
-                        add(JButton("发送").apply {
-                            addActionListener {
-                                // TODO: 实现发送逻辑
-                                messageArea.append("User: ${inputField.text}\n")
-                                inputField.text = ""
-                            }
-                        })
+                    // 创建包含输入框和发送按钮的面板
+                    val inputWithButtonPanel = JBPanel<JBPanel<*>>().apply {
+                        layout = BorderLayout(5, 0)
+                        
+                        val inputField = JBTextArea(3, 20).apply {
+                            lineWrap = true
+                            wrapStyleWord = true
+                        }
+                        add(JBScrollPane(inputField), BorderLayout.CENTER)
+                        
+                        // 发送按钮
+                        val sendButton = ActionLink("") {
+                            // TODO: 实现发送逻辑
+                            messageArea.append("User: ${inputField.text}\n")
+                            inputField.text = ""
+                        }.apply {
+                            setIcon(AllIcons.Actions.Execute)
+                        }
+                        
+                        // 创建一个面板来容纳发送按钮，并设置合适的边距
+                        val sendButtonPanel = JBPanel<JBPanel<*>>().apply {
+                            layout = GridBagLayout()  // 使用 GridBagLayout 实现完全居中
+                            border = JBUI.Borders.empty(5)
+                            add(sendButton)
+                        }
+                        add(sendButtonPanel, BorderLayout.EAST)
                     }
-                    add(buttonPanel, BorderLayout.SOUTH)
+                    
+                    add(inputWithButtonPanel, BorderLayout.CENTER)
                 }
                 add(inputPanel, BorderLayout.SOUTH)
             }
