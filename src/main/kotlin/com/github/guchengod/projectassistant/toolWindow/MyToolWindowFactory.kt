@@ -1,5 +1,6 @@
 package com.github.guchengod.projectassistant.toolWindow
 
+import com.github.guchengod.projectassistant.services.AIModelService
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -22,6 +23,7 @@ import javax.swing.Box
 import com.intellij.util.ui.JBUI
 import com.github.guchengod.projectassistant.settings.AISettingsState
 import com.intellij.openapi.components.service
+import com.intellij.openapi.ui.Messages
 
 class MyToolWindowFactory : ToolWindowFactory {
 
@@ -40,9 +42,30 @@ class MyToolWindowFactory : ToolWindowFactory {
     class MyToolWindow(private val toolWindow: ToolWindow) {
         private val modelLabel = JBLabel()
         private val settingsState = toolWindow.project.service<AISettingsState>()
+        private val modelService = AIModelService()
+        private lateinit var messageArea: JBTextArea
 
         private fun updateModelLabel() {
             modelLabel.text = "当前模型: ${settingsState.selectedModel}"
+        }
+
+        private fun sendMessage(message: String) {
+            try {
+                val response = modelService.sendMessage(
+                    settingsState.baseUrl,
+                    settingsState.apiKey,
+                    settingsState.selectedModel,
+                    message
+                )
+                messageArea.append("User: $message\n")
+                messageArea.append("Assistant: $response\n\n")
+            } catch (e: Exception) {
+                Messages.showErrorDialog(
+                    toolWindow.component,
+                    "发送消息失败: ${e.message}",
+                    "错误"
+                )
+            }
         }
 
         fun getContent() = JBPanel<JBPanel<*>>().apply {
@@ -88,7 +111,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                 layout = BorderLayout(10, 10)
                 
                 // 消息显示区域
-                val messageArea = JBTextArea().apply {
+                messageArea = JBTextArea().apply {
                     isEditable = false
                     lineWrap = true
                     wrapStyleWord = true
@@ -111,9 +134,11 @@ class MyToolWindowFactory : ToolWindowFactory {
                         
                         // 发送按钮
                         val sendButton = ActionLink("") {
-                            // TODO: 实现发送逻辑
-                            messageArea.append("User: ${inputField.text}\n")
-                            inputField.text = ""
+                            val message = inputField.text.trim()
+                            if (message.isNotEmpty()) {
+                                sendMessage(message)
+                                inputField.text = ""
+                            }
                         }.apply {
                             setIcon(AllIcons.Actions.Execute)
                         }
@@ -136,11 +161,13 @@ class MyToolWindowFactory : ToolWindowFactory {
     }
 }
 
-class AISettingsConfigurable(private val project: Project) : Configurable {
+class AISettingsConfigurable(project: Project) : Configurable {
     private var mainPanel: JPanel? = null
     private var apiKeyField: JTextField? = null
     private var modelComboBox: JComboBox<String>? = null
+    private var providerComboBox: JComboBox<String>? = null
     private val settingsState = project.service<AISettingsState>()
+    private val modelService = AIModelService()
 
     @NlsContexts.ConfigurableName
     override fun getDisplayName() = "AI Settings"
@@ -153,36 +180,85 @@ class AISettingsConfigurable(private val project: Project) : Configurable {
                 insets = JBUI.insets(5)
             }
 
-            // API Key
+            // Provider Selection
             gbc.gridx = 0
             gbc.gridy = 0
+            gbc.weightx = 0.0
+            add(JLabel("Provider:"), gbc)
+
+            providerComboBox = JComboBox(AISettingsState.PROVIDERS).apply {
+                selectedItem = settingsState.provider
+                addActionListener {
+                    // 当提供商改变时清空模型列表
+                    modelComboBox?.removeAllItems()
+                }
+            }
+            gbc.gridx = 1
+            gbc.gridy = 0
+            gbc.weightx = 1.0
+            add(providerComboBox, gbc)
+
+            // API Key
+            gbc.gridx = 0
+            gbc.gridy = 1
+            gbc.weightx = 0.0
             add(JLabel("API Key:"), gbc)
 
             apiKeyField = JTextField(30).apply {
                 text = settingsState.apiKey
             }
             gbc.gridx = 1
-            gbc.gridy = 0
+            gbc.gridy = 1
             gbc.weightx = 1.0
             add(apiKeyField, gbc)
 
-            // Model Selection
+            // Model Selection with Refresh Button
             gbc.gridx = 0
-            gbc.gridy = 1
+            gbc.gridy = 2
             gbc.weightx = 0.0
             add(JLabel("Model:"), gbc)
 
-            modelComboBox = JComboBox(AISettingsState.DEFAULT_MODELS).apply {
+            val modelPanel = JPanel(BorderLayout(5, 0))
+            modelComboBox = JComboBox<String>().apply {
                 selectedItem = settingsState.selectedModel
             }
+            modelPanel.add(modelComboBox, BorderLayout.CENTER)
+
+            // 获取模型按钮
+            val refreshButton = JButton("获取模型列表").apply {
+                addActionListener {
+                    try {
+                        val apiKey = apiKeyField?.text ?: ""
+                        val baseUrl = when (providerComboBox?.selectedItem) {
+                            "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
+                            "OpenAI" -> AIModelService.OPENAI_BASE_URL
+                            else -> AIModelService.DEEPSEEK_BASE_URL
+                        }
+                        
+                        val models = modelService.fetchModels(baseUrl, apiKey)
+                        modelComboBox?.removeAllItems()
+                        models.forEach { model ->
+                            modelComboBox?.addItem(model.id)
+                        }
+                    } catch (e: Exception) {
+                        Messages.showErrorDialog(
+                            mainPanel,
+                            "Failed to fetch models: ${e.message}",
+                            "Error"
+                        )
+                    }
+                }
+            }
+            modelPanel.add(refreshButton, BorderLayout.EAST)
+
             gbc.gridx = 1
-            gbc.gridy = 1
+            gbc.gridy = 2
             gbc.weightx = 1.0
-            add(modelComboBox, gbc)
+            add(modelPanel, gbc)
 
             // Filler
             gbc.gridx = 0
-            gbc.gridy = 2
+            gbc.gridy = 3
             gbc.weighty = 1.0
             gbc.gridwidth = 2
             add(Box.createVerticalGlue(), gbc)
@@ -192,12 +268,14 @@ class AISettingsConfigurable(private val project: Project) : Configurable {
 
     override fun isModified(): Boolean {
         return apiKeyField?.text != settingsState.apiKey ||
-               modelComboBox?.selectedItem != settingsState.selectedModel
+               modelComboBox?.selectedItem != settingsState.selectedModel ||
+               providerComboBox?.selectedItem != settingsState.provider
     }
 
     @Throws(ConfigurationException::class)
     override fun apply() {
         apiKeyField?.text?.let { settingsState.apiKey = it }
         modelComboBox?.selectedItem?.let { settingsState.selectedModel = it.toString() }
+        providerComboBox?.selectedItem?.let { settingsState.provider = it.toString() }
     }
 }

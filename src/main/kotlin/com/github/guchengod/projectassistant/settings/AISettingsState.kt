@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.util.xmlb.XmlSerializerUtil
+import com.github.guchengod.projectassistant.services.AIModelService
 
 @State(
     name = "com.github.guchengod.projectassistant.settings.AISettingsState",
@@ -13,7 +14,15 @@ import com.intellij.util.xmlb.XmlSerializerUtil
 @Service(Service.Level.PROJECT)
 class AISettingsState : PersistentStateComponent<AISettingsState> {
     var apiKey: String = ""
-    var selectedModel: String = "DeepSeek-7B"
+    var selectedModel: String = ""
+    var provider: String = "DeepSeek"  // DeepSeek 或 OpenAI
+    
+    val baseUrl: String
+        get() = when (provider) {
+            "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
+            "OpenAI" -> AIModelService.OPENAI_BASE_URL
+            else -> AIModelService.DEEPSEEK_BASE_URL
+        }
 
     override fun getState(): AISettingsState = this
 
@@ -22,6 +31,6 @@ class AISettingsState : PersistentStateComponent<AISettingsState> {
     }
 
     companion object {
-        val DEFAULT_MODELS = arrayOf("DeepSeek-7B", "DeepSeek-67B")
+        val PROVIDERS = arrayOf("DeepSeek", "OpenAI")
     }
 }
