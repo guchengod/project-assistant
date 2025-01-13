@@ -24,9 +24,15 @@ import com.intellij.util.ui.JBUI
 import com.github.guchengod.projectassistant.settings.AISettingsState
 import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.Messages
+import java.awt.event.KeyEvent
+import java.awt.event.ActionEvent
+import javax.swing.AbstractAction
+import javax.swing.KeyStroke
+import kotlinx.coroutines.*
+import com.intellij.openapi.application.ApplicationManager
+import java.awt.event.InputEvent
 
 class MyToolWindowFactory : ToolWindowFactory {
-
     init {
         thisLogger().warn("Don't forget to remove all non-needed sample code files with their corresponding registration entries in `plugin.xml`.")
     }
@@ -44,27 +50,57 @@ class MyToolWindowFactory : ToolWindowFactory {
         private val settingsState = toolWindow.project.service<AISettingsState>()
         private val modelService = AIModelService()
         private lateinit var messageArea: JBTextArea
+        private lateinit var inputField: JBTextArea
+        private lateinit var sendButton: ActionLink
+        private val coroutineScope = CoroutineScope(Dispatchers.IO + Job())
 
         private fun updateModelLabel() {
             modelLabel.text = "当前模型: ${settingsState.selectedModel}"
         }
 
+        private fun appendMessage(role: String, content: String) {
+            ApplicationManager.getApplication().invokeLater {
+                messageArea.append("$role: $content\n\n")
+                // 滚动到底部
+                messageArea.caretPosition = messageArea.document.length
+            }
+        }
+
+        private fun setInputEnabled(enabled: Boolean) {
+            inputField.isEnabled = enabled
+            sendButton.isEnabled = enabled
+        }
+
         private fun sendMessage(message: String) {
-            try {
-                val response = modelService.sendMessage(
-                    settingsState.baseUrl,
-                    settingsState.apiKey,
-                    settingsState.selectedModel,
-                    message
-                )
-                messageArea.append("User: $message\n")
-                messageArea.append("Assistant: $response\n\n")
-            } catch (e: Exception) {
-                Messages.showErrorDialog(
-                    toolWindow.component,
-                    "发送消息失败: ${e.message}",
-                    "错误"
-                )
+            if (message.isBlank()) return
+            
+            setInputEnabled(false)
+            appendMessage("用户", message)
+
+            coroutineScope.launch {
+                try {
+                    val response = modelService.sendMessage(
+                        settingsState.baseUrl,
+                        settingsState.apiKey,
+                        settingsState.selectedModel,
+                        message
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        appendMessage("助手", response)
+                        setInputEnabled(true)
+                        inputField.requestFocus()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Messages.showErrorDialog(
+                            toolWindow.component,
+                            "发送消息失败: ${e.message}",
+                            "错误"
+                        )
+                        setInputEnabled(true)
+                    }
+                }
             }
         }
 
@@ -126,14 +162,29 @@ class MyToolWindowFactory : ToolWindowFactory {
                     val inputWithButtonPanel = JBPanel<JBPanel<*>>().apply {
                         layout = BorderLayout(5, 0)
                         
-                        val inputField = JBTextArea(3, 20).apply {
+                        inputField = JBTextArea(3, 20).apply {
                             lineWrap = true
                             wrapStyleWord = true
+                            
+                            // 添加快捷键支持
+                            getInputMap(JComponent.WHEN_FOCUSED).put(
+                                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),
+                                "send"
+                            )
+                            actionMap.put("send", object : AbstractAction() {
+                                override fun actionPerformed(e: ActionEvent) {
+                                    val message = text.trim()
+                                    if (message.isNotEmpty()) {
+                                        sendMessage(message)
+                                        text = ""
+                                    }
+                                }
+                            })
                         }
                         add(JBScrollPane(inputField), BorderLayout.CENTER)
                         
                         // 发送按钮
-                        val sendButton = ActionLink("") {
+                        sendButton = ActionLink("") {
                             val message = inputField.text.trim()
                             if (message.isNotEmpty()) {
                                 sendMessage(message)
@@ -141,6 +192,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                             }
                         }.apply {
                             setIcon(AllIcons.Actions.Execute)
+                            toolTipText = "发送 (Ctrl+Enter)"
                         }
                         
                         // 创建一个面板来容纳发送按钮，并设置合适的边距
@@ -243,8 +295,8 @@ class AISettingsConfigurable(project: Project) : Configurable {
                     } catch (e: Exception) {
                         Messages.showErrorDialog(
                             mainPanel,
-                            "Failed to fetch models: ${e.message}",
-                            "Error"
+                            "获取模型列表失败: ${e.message}",
+                            "错误"
                         )
                     }
                 }
