@@ -82,11 +82,6 @@ class MyToolWindowFactory : ToolWindowFactory {
             }
         }
 
-        private fun setInputEnabled(enabled: Boolean) {
-            inputField.isEnabled = enabled
-            // 不在这里设置sendButton的状态
-        }
-
         private fun setProcessingState(processing: Boolean) {
             SwingUtilities.invokeLater {
                 inputField.isEnabled = !processing
@@ -99,8 +94,6 @@ class MyToolWindowFactory : ToolWindowFactory {
         private fun sendMessage(message: String) {
             if (message.isBlank()) return
             
-            // 设置为处理中状态
-            setProcessingState(true)
             appendMessage("用户", message)
 
             coroutineScope.launch {
@@ -317,8 +310,15 @@ class MyToolWindowFactory : ToolWindowFactory {
                         sendButton.addActionListener {
                             val message = inputField.text.trim()
                             if (message.isNotEmpty()) {
-                                sendMessage(message)
+                                // 先设置为处理中状态
+                                setProcessingState(true)
+                                
+                                // 清空输入框
+                                val currentMessage = message
                                 inputField.text = ""
+                                
+                                // 发送消息
+                                sendMessage(currentMessage)
                             }
                         }
                         
