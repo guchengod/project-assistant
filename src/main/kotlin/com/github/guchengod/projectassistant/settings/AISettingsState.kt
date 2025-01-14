@@ -11,7 +11,7 @@ import com.github.guchengod.projectassistant.services.AIModelService
     name = "com.github.guchengod.projectassistant.settings.AISettingsState",
     storages = [Storage("AISettingsPlugin.xml")]
 )
-@Service(Service.Level.PROJECT)
+@Service(Service.Level.APP)
 class AISettingsState : PersistentStateComponent<AISettingsState> {
     var apiKey: String = ""
     var selectedModel: String = ""

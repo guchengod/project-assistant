@@ -240,7 +240,7 @@ class AISettingsConfigurable(project: Project) : Configurable {
     private val modelService = AIModelService()
 
     @NlsContexts.ConfigurableName
-    override fun getDisplayName() = "AI Settings"
+    override fun getDisplayName() = "project assistant"
 
     override fun createComponent(): JComponent {
         mainPanel = JPanel(GridBagLayout()).apply {
@@ -259,8 +259,8 @@ class AISettingsConfigurable(project: Project) : Configurable {
             providerComboBox = JComboBox(AISettingsState.PROVIDERS).apply {
                 selectedItem = settingsState.provider
                 addActionListener {
-                    // 当提供商改变时清空模型列表
-                    modelComboBox?.removeAllItems()
+                    // 当提供商改变时重新加载模型列表
+                    loadModels()
                 }
             }
             gbc.gridx = 1
@@ -297,26 +297,7 @@ class AISettingsConfigurable(project: Project) : Configurable {
             // 获取模型按钮
             val refreshButton = JButton("获取模型列表").apply {
                 addActionListener {
-                    try {
-                        val apiKey = apiKeyField?.text ?: ""
-                        val baseUrl = when (providerComboBox?.selectedItem) {
-                            "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
-                            "OpenAI" -> AIModelService.OPENAI_BASE_URL
-                            else -> AIModelService.DEEPSEEK_BASE_URL
-                        }
-                        
-                        val models = modelService.fetchModels(baseUrl, apiKey)
-                        modelComboBox?.removeAllItems()
-                        models.forEach { model ->
-                            modelComboBox?.addItem(model.id)
-                        }
-                    } catch (e: Exception) {
-                        Messages.showErrorDialog(
-                            mainPanel,
-                            "获取模型列表失败: ${e.message}",
-                            "错误"
-                        )
-                    }
+                    loadModels()
                 }
             }
             modelPanel.add(refreshButton, BorderLayout.EAST)
@@ -332,8 +313,36 @@ class AISettingsConfigurable(project: Project) : Configurable {
             gbc.weighty = 1.0
             gbc.gridwidth = 2
             add(Box.createVerticalGlue(), gbc)
+
+            // 初始化时加载模型列表
+            loadModels()
         }
         return mainPanel!!
+    }
+
+    private fun loadModels() {
+        try {
+            val apiKey = apiKeyField?.text ?: ""
+            val baseUrl = when (providerComboBox?.selectedItem) {
+                "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
+                "OpenAI" -> AIModelService.OPENAI_BASE_URL
+                else -> AIModelService.DEEPSEEK_BASE_URL
+            }
+            
+            val models = modelService.fetchModels(baseUrl, apiKey)
+            modelComboBox?.removeAllItems()
+            models.forEach { model ->
+                modelComboBox?.addItem(model.id)
+            }
+            // 恢复选中的模型
+            modelComboBox?.selectedItem = settingsState.selectedModel
+        } catch (e: Exception) {
+            Messages.showErrorDialog(
+                mainPanel,
+                "获取模型列表失败: ${e.message}",
+                "错误"
+            )
+        }
     }
 
     override fun isModified(): Boolean {
@@ -345,7 +354,9 @@ class AISettingsConfigurable(project: Project) : Configurable {
     @Throws(ConfigurationException::class)
     override fun apply() {
         apiKeyField?.text?.let { settingsState.apiKey = it }
-        modelComboBox?.selectedItem?.let { settingsState.selectedModel = it.toString() }
+        modelComboBox?.selectedItem?.let {
+            settingsState.selectedModel = it.toString()
+        }
         providerComboBox?.selectedItem?.let { settingsState.provider = it.toString() }
     }
 }
