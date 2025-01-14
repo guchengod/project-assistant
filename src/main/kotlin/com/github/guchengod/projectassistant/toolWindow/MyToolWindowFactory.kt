@@ -16,7 +16,6 @@ import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.ui.components.JBTextArea
-import javax.swing.border.EmptyBorder
 import com.intellij.icons.AllIcons
 import com.intellij.ui.components.ActionLink
 import javax.swing.Box
@@ -60,9 +59,25 @@ class MyToolWindowFactory : ToolWindowFactory {
 
         private fun appendMessage(role: String, content: String) {
             ApplicationManager.getApplication().invokeLater {
-                messageArea.append("$role: $content\n\n")
+                if (role == "用户") {
+                    messageArea.append("$role: $content\n\n")
+                } else {
+                    messageArea.append("$role: ")
+                }
                 // 滚动到底部
                 messageArea.caretPosition = messageArea.document.length
+            }
+        }
+
+        private fun appendStreamContent(content: String) {
+            if (ApplicationManager.getApplication().isDispatchThread) {
+                messageArea.append(content)
+                messageArea.caretPosition = messageArea.document.length
+            } else {
+                ApplicationManager.getApplication().invokeLater {
+                    messageArea.append(content)
+                    messageArea.caretPosition = messageArea.document.length
+                }
             }
         }
 
@@ -79,15 +94,17 @@ class MyToolWindowFactory : ToolWindowFactory {
 
             coroutineScope.launch {
                 try {
-                    val response = modelService.sendMessage(
+                    modelService.sendMessage(
                         settingsState.baseUrl,
                         settingsState.apiKey,
                         settingsState.selectedModel,
                         message
-                    )
+                    ) { chunk ->
+                        appendStreamContent(chunk)
+                    }
                     
                     withContext(Dispatchers.Main) {
-                        appendMessage("助手", response)
+                        messageArea.append("\n\n")  // Add newlines after response is complete
                         setInputEnabled(true)
                         inputField.requestFocus()
                     }
@@ -166,6 +183,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                             lineWrap = true
                             wrapStyleWord = true
                             
+
                             // 添加快捷键支持
                             getInputMap(JComponent.WHEN_FOCUSED).put(
                                 KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),

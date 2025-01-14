@@ -36,7 +36,7 @@ data class ChatRequest(
     @SerializedName("response_format")
     val responseFormat: ResponseFormat = ResponseFormat("text"),
     val stop: Any? = null,
-    val stream: Boolean = false,
+    val stream: Boolean = true,
     @SerializedName("stream_options")
     val streamOptions: Any? = null,
     val temperature: Double = 1.0,
@@ -79,6 +79,30 @@ data class Usage(
     val totalTokens: Int
 )
 
+data class StreamChoice(
+    @SerializedName("finish_reason")
+    val finishReason: String?,
+    val index: Int,
+    val delta: Delta,
+    val logprobs: Any?
+)
+
+data class Delta(
+    val content: String?,
+    val role: String?
+)
+
+data class StreamResponse(
+    val id: String,
+    val choices: List<StreamChoice>,
+    val created: Long,
+    val model: String,
+    val `object`: String,
+    @SerializedName("system_fingerprint")
+    val systemFingerprint: String,
+    val usage: Usage?
+)
+
 class AIModelService {
     private val client = OkHttpClient()
     private val gson = Gson()
@@ -100,7 +124,13 @@ class AIModelService {
         }
     }
 
-    fun sendMessage(baseUrl: String, apiKey: String, model: String, message: String): String {
+    fun sendMessage(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        message: String,
+        onChunk: (String) -> Unit
+    ) {
         val chatRequest = ChatRequest(
             messages = listOf(
                 ChatMessage("system", "You are a helpful assistant"),
@@ -123,9 +153,31 @@ class AIModelService {
             if (!response.isSuccessful) {
                 throw RuntimeException("Failed to send message: ${response.code}")
             }
-            val chatResponse = gson.fromJson(response.body?.string(), ChatResponse::class.java)
-            return chatResponse.choices.firstOrNull()?.message?.content 
-                ?: throw RuntimeException("No response received")
+
+            response.body?.let { body ->
+                body.source().use { source ->
+                    while (!source.exhausted()) {
+                        val line = source.readUtf8Line() ?: continue
+                        if (line.isEmpty()) continue
+
+                        if (!line.startsWith("data: ")) continue
+                        val data = line.substring(6)
+
+                        if (data == "[DONE]") break
+
+                        try {
+                            val streamResponse = gson.fromJson(data, StreamResponse::class.java)
+                            val content = streamResponse.choices.firstOrNull()?.delta?.content
+                            if (content != null) {
+                                onChunk(content)
+                            }
+                        } catch (e: Exception) {
+                            // Skip malformed JSON
+                            continue
+                        }
+                    }
+                }
+            }
         }
     }
 
