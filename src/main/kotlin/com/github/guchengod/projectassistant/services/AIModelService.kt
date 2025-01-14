@@ -103,6 +103,23 @@ data class StreamResponse(
     val usage: Usage?
 )
 
+data class BalanceInfo(
+    val currency: String,
+    @SerializedName("total_balance")
+    val totalBalance: String,
+    @SerializedName("granted_balance")
+    val grantedBalance: String,
+    @SerializedName("topped_up_balance")
+    val toppedUpBalance: String
+)
+
+data class BalanceResponse(
+    @SerializedName("is_available")
+    val isAvailable: Boolean,
+    @SerializedName("balance_infos")
+    val balanceInfos: List<BalanceInfo>
+)
+
 class AIModelService {
     private val client = OkHttpClient()
     private val gson = Gson()
@@ -178,6 +195,22 @@ class AIModelService {
                     }
                 }
             }
+        }
+    }
+
+    fun fetchBalance(baseUrl: String, apiKey: String): BalanceResponse {
+        val request = Request.Builder()
+            .url("$baseUrl/user/balance")
+            .get()
+            .addHeader("Accept", "application/json")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw RuntimeException("Failed to fetch balance: ${response.code}")
+            }
+            return gson.fromJson(response.body?.string(), BalanceResponse::class.java)
         }
     }
 

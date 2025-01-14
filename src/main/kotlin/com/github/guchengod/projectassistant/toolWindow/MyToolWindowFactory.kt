@@ -236,6 +236,7 @@ class AISettingsConfigurable(project: Project) : Configurable {
     private var apiKeyField: JTextField? = null
     private var modelComboBox: JComboBox<String>? = null
     private var providerComboBox: JComboBox<String>? = null
+    private var balanceLabel: JLabel? = null
     private val settingsState = project.service<AISettingsState>()
     private val modelService = AIModelService()
 
@@ -307,9 +308,50 @@ class AISettingsConfigurable(project: Project) : Configurable {
             gbc.weightx = 1.0
             add(modelPanel, gbc)
 
-            // Filler
+            // Balance Button and Label
             gbc.gridx = 0
             gbc.gridy = 3
+            gbc.weightx = 0.0
+            val balanceButton = JButton("查询余额").apply {
+                addActionListener {
+                    try {
+                        val apiKey = apiKeyField?.text ?: ""
+                        val baseUrl = when (providerComboBox?.selectedItem) {
+                            "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
+                            "OpenAI" -> AIModelService.OPENAI_BASE_URL
+                            else -> AIModelService.DEEPSEEK_BASE_URL
+                        }
+                        
+                        val balance = modelService.fetchBalance(baseUrl, apiKey)
+                        val balanceInfo = balance.balanceInfos.firstOrNull()
+                        if (balanceInfo != null) {
+                            balanceLabel?.text = "<html>总余额: ${balanceInfo.totalBalance} ${balanceInfo.currency}<br>" +
+                                    "赠送余额: ${balanceInfo.grantedBalance} ${balanceInfo.currency}<br>" +
+                                    "充值余额: ${balanceInfo.toppedUpBalance} ${balanceInfo.currency}</html>"
+                        } else {
+                            balanceLabel?.text = "未获取到余额信息"
+                        }
+                    } catch (e: Exception) {
+                        Messages.showErrorDialog(
+                            mainPanel,
+                            "查询余额失败: ${e.message}",
+                            "错误"
+                        )
+                    }
+                }
+            }
+            add(balanceButton, gbc)
+
+            // Balance display
+            balanceLabel = JLabel("点击按钮查询余额")
+            gbc.gridx = 1
+            gbc.gridy = 3
+            gbc.weightx = 1.0
+            add(balanceLabel, gbc)
+
+            // Filler
+            gbc.gridx = 0
+            gbc.gridy = 4
             gbc.weighty = 1.0
             gbc.gridwidth = 2
             add(Box.createVerticalGlue(), gbc)
