@@ -31,6 +31,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.ui.JBColor
 import java.awt.event.*
 import javax.swing.border.AbstractBorder
+import javax.swing.SwingUtilities
 
 class MyToolWindowFactory : ToolWindowFactory {
     init {
@@ -83,13 +84,23 @@ class MyToolWindowFactory : ToolWindowFactory {
 
         private fun setInputEnabled(enabled: Boolean) {
             inputField.isEnabled = enabled
-            sendButton.isEnabled = enabled
+            // 不在这里设置sendButton的状态
+        }
+
+        private fun setProcessingState(processing: Boolean) {
+            SwingUtilities.invokeLater {
+                inputField.isEnabled = !processing
+                sendButton.isEnabled = !processing
+                sendButton.icon = if (processing) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
+                sendButton.repaint()
+            }
         }
 
         private fun sendMessage(message: String) {
             if (message.isBlank()) return
             
-            setInputEnabled(false)
+            // 设置为处理中状态
+            setProcessingState(true)
             appendMessage("用户", message)
 
             coroutineScope.launch {
@@ -105,7 +116,8 @@ class MyToolWindowFactory : ToolWindowFactory {
                     
                     withContext(Dispatchers.Main) {
                         messageArea.append("\n\n")  // Add newlines after response is complete
-                        setInputEnabled(true)
+                        // 恢复为正常状态
+                        setProcessingState(false)
                         inputField.requestFocus()
                     }
                 } catch (e: Exception) {
@@ -115,7 +127,8 @@ class MyToolWindowFactory : ToolWindowFactory {
                             "发送消息失败: ${e.message}",
                             "错误"
                         )
-                        setInputEnabled(true)
+                        // 发生错误时也恢复为正常状态
+                        setProcessingState(false)
                     }
                 }
             }
@@ -139,20 +152,24 @@ class MyToolWindowFactory : ToolWindowFactory {
                     layout = FlowLayout(FlowLayout.RIGHT, 5, 0)
 
                     // 刷新按钮
-                    val actionLinkRefresh = ActionLink("") {
+                    val actionLinkRefresh = ActionLink("").apply {
+                        icon = AllIcons.Actions.Refresh
+                    }
+                    actionLinkRefresh.addActionListener {
                         updateModelLabel()
                     }
-                    actionLinkRefresh.setIcon(AllIcons.Actions.Refresh)
                     add(actionLinkRefresh)
 
                     // 设置按钮
-                    val actionLinkSetting = ActionLink("") {
+                    val actionLinkSetting = ActionLink("").apply {
+                        icon = AllIcons.General.Settings
+                    }
+                    actionLinkSetting.addActionListener {
                         ShowSettingsUtil.getInstance().showSettingsDialog(
                             toolWindow.project,
                             AISettingsConfigurable::class.java
                         )
                     }
-                    actionLinkSetting.setIcon(AllIcons.General.Settings)
                     add(actionLinkSetting)
                 }
                 add(buttonsPanel, BorderLayout.EAST)
@@ -293,15 +310,16 @@ class MyToolWindowFactory : ToolWindowFactory {
                         add(inputField, BorderLayout.CENTER)
                         
                         // 发送按钮
-                        sendButton = ActionLink("") {
+                        sendButton = ActionLink("").apply {
+                            icon = AllIcons.Actions.Execute
+                            toolTipText = "发送 (Ctrl+Enter)"
+                        }
+                        sendButton.addActionListener {
                             val message = inputField.text.trim()
                             if (message.isNotEmpty()) {
                                 sendMessage(message)
                                 inputField.text = ""
                             }
-                        }.apply {
-                            setIcon(AllIcons.Actions.Execute)
-                            toolTipText = "发送 (Ctrl+Enter)"
                         }
                         
                         // 创建一个面板来容纳发送按钮，并设置合适的边距
