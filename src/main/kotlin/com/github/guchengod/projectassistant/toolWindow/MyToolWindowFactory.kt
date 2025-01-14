@@ -21,15 +21,16 @@ import com.intellij.ui.components.ActionLink
 import javax.swing.Box
 import com.intellij.util.ui.JBUI
 import com.github.guchengod.projectassistant.settings.AISettingsState
+import com.intellij.collaboration.ui.jbColorFromHex
 import com.intellij.openapi.components.service
 import com.intellij.openapi.ui.Messages
-import java.awt.event.KeyEvent
-import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
 import javax.swing.KeyStroke
 import kotlinx.coroutines.*
 import com.intellij.openapi.application.ApplicationManager
-import java.awt.event.InputEvent
+import com.intellij.ui.JBColor
+import java.awt.event.*
+import javax.swing.border.AbstractBorder
 
 class MyToolWindowFactory : ToolWindowFactory {
     init {
@@ -59,10 +60,9 @@ class MyToolWindowFactory : ToolWindowFactory {
 
         private fun appendMessage(role: String, content: String) {
             ApplicationManager.getApplication().invokeLater {
+                messageArea.append("$role\n")
                 if (role == "用户") {
-                    messageArea.append("$role: $content\n\n")
-                } else {
-                    messageArea.append("$role: ")
+                    messageArea.append("$content\n\n")
                 }
                 // 滚动到底部
                 messageArea.caretPosition = messageArea.document.length
@@ -139,14 +139,14 @@ class MyToolWindowFactory : ToolWindowFactory {
                     layout = FlowLayout(FlowLayout.RIGHT, 5, 0)
 
                     // 刷新按钮
-                    val actionLinkRefresh = ActionLink("刷新") {
+                    val actionLinkRefresh = ActionLink("") {
                         updateModelLabel()
                     }
                     actionLinkRefresh.setIcon(AllIcons.Actions.Refresh)
                     add(actionLinkRefresh)
 
                     // 设置按钮
-                    val actionLinkSetting = ActionLink("设置") {
+                    val actionLinkSetting = ActionLink("") {
                         ShowSettingsUtil.getInstance().showSettingsDialog(
                             toolWindow.project,
                             AISettingsConfigurable::class.java
@@ -168,8 +168,16 @@ class MyToolWindowFactory : ToolWindowFactory {
                     isEditable = false
                     lineWrap = true
                     wrapStyleWord = true
+                    isOpaque = false
+                    background = null
+                    border = null
                 }
-                add(JBScrollPane(messageArea), BorderLayout.CENTER)
+                val messageScrollPane = JBScrollPane(messageArea).apply {
+                    border = null
+                    viewport.isOpaque = false
+                    setViewportBorder(null)
+                }
+                add(messageScrollPane, BorderLayout.CENTER)
                 
                 // 输入区域
                 val inputPanel = JBPanel<JBPanel<*>>().apply {
@@ -179,10 +187,93 @@ class MyToolWindowFactory : ToolWindowFactory {
                     val inputWithButtonPanel = JBPanel<JBPanel<*>>().apply {
                         layout = BorderLayout(5, 0)
                         
-                        inputField = JBTextArea(3, 20).apply {
+                        inputField = JBTextArea().apply {
                             lineWrap = true
                             wrapStyleWord = true
+                            rows = 1
+                            minimumSize = Dimension(0, 24)
+                            preferredSize = Dimension(0, 24)
+                            margin = JBUI.insets(5)
                             
+                            // 自定义边框和焦点效果
+                            val cornerRadius = 6
+                            val roundedBorder = BorderFactory.createCompoundBorder(
+                                object : AbstractBorder() {
+                                    override fun paintBorder(c: Component, g: Graphics, x: Int, y: Int, width: Int, height: Int) {
+                                        val g2 = g.create() as Graphics2D
+                                        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                                        g2.color = JBColor.border()
+                                        g2.drawRoundRect(x, y, width - 1, height - 1, cornerRadius * 2, cornerRadius * 2)
+                                        g2.dispose()
+                                    }
+                                    
+                                    override fun getBorderInsets(c: Component): Insets {
+                                        return JBUI.insets(1)
+                                    }
+                                },
+                                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+                            )
+                            
+                            border = roundedBorder
+                            
+                            // 添加焦点监听器
+                            addFocusListener(object : FocusAdapter() {
+                                override fun focusGained(e: FocusEvent) {
+                                    border = BorderFactory.createCompoundBorder(
+                                        object : AbstractBorder() {
+                                            override fun paintBorder(c: Component, g: Graphics, x: Int, y: Int, width: Int, height: Int) {
+                                                val g2 = g.create() as Graphics2D
+                                                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                                                g2.color = JBColor.namedColor("Focus.defaultButtonBorderColor", 0x589df6)
+                                                g2.drawRoundRect(x, y, width - 1, height - 1, cornerRadius * 2, cornerRadius * 2)
+                                                g2.dispose()
+                                            }
+                                            
+                                            override fun getBorderInsets(c: Component): Insets {
+                                                return JBUI.insets(1)
+                                            }
+                                        },
+                                        BorderFactory.createEmptyBorder(10, 10, 10, 10)
+                                    )
+                                }
+                                
+                                override fun focusLost(e: FocusEvent) {
+                                    border = roundedBorder
+                                }
+                            })
+
+                            background = JBColor(Color(0x2B2B2B), Color(0x2B2B2B))  // 深褐色背景
+
+                            // 添加文本变化监听器来实现自适应高度
+                            document.addDocumentListener(object : javax.swing.event.DocumentListener {
+                                private fun updateSize() {
+                                    val fm = getFontMetrics(font)
+                                    val lineHeight = fm.height + 10
+                                    val availableWidth = width - insets.left - insets.right
+                                    
+                                    // 计算实际需要的行数
+                                    var totalLines = 0
+                                    text.split("\n").forEach { str ->
+                                        if (str.isEmpty()) {
+                                            totalLines++
+                                        } else {
+                                            val lineWidth = fm.stringWidth(str)
+                                            totalLines += (lineWidth + availableWidth - 1) / availableWidth
+                                        }
+                                    }
+                                    
+                                    // 设置新高度，最小1行，最大8行
+                                    val newHeight = maxOf(lineHeight, minOf(totalLines * lineHeight, 80 * lineHeight))
+                                    if (preferredSize.height != newHeight) {
+                                        preferredSize = Dimension(width, newHeight)
+                                        revalidate()
+                                    }
+                                }
+                                
+                                override fun insertUpdate(e: javax.swing.event.DocumentEvent) = updateSize()
+                                override fun removeUpdate(e: javax.swing.event.DocumentEvent) = updateSize()
+                                override fun changedUpdate(e: javax.swing.event.DocumentEvent) = updateSize()
+                            })
 
                             // 添加快捷键支持
                             getInputMap(JComponent.WHEN_FOCUSED).put(
@@ -199,7 +290,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                                 }
                             })
                         }
-                        add(JBScrollPane(inputField), BorderLayout.CENTER)
+                        add(inputField, BorderLayout.CENTER)
                         
                         // 发送按钮
                         sendButton = ActionLink("") {
