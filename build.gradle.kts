@@ -46,13 +46,14 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.commonmark:commonmark:0.21.0")
-
+    implementation("com.aallam.openai:openai-client:3.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
 
-//        local("D:\\sgw\\wordtools\\ideaIC-2023.3.8.win")
+        local("D:\\sgw\\wordtools\\ideaIC-2023.3.8.win")
         //todo 如果可以在线下载则则使用自动下载即可
-        create(providers.gradleProperty("platformType"), providers.gradleProperty("platformVersion"))
+//        create(providers.gradleProperty("platformType"), providers.gradleProperty("platformVersion"))
 
         // Plugin Dependencies. Uses `platformBundledPlugins` property from the gradle.properties file for bundled IntelliJ Platform plugins.
         bundledPlugins(providers.gradleProperty("platformBundledPlugins").map { it.split(',') })

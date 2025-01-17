@@ -6,6 +6,19 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import com.aallam.openai.api.BetaOpenAI
+import com.aallam.openai.api.chat.ChatCompletion
+import com.aallam.openai.api.chat.ChatCompletionChunk
+import com.aallam.openai.api.chat.ChatCompletionRequest
+import com.aallam.openai.api.chat.ChatMessage as OpenAIChatMessage
+import com.aallam.openai.api.chat.ChatRole
+import com.aallam.openai.api.model.ModelId
+import com.aallam.openai.client.OpenAI
+import com.aallam.openai.client.OpenAIConfig
+import kotlinx.coroutines.flow.Flow
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.Proxy.Type
 
 data class ModelResponse(
     val `object`: String,
@@ -124,6 +137,7 @@ class AIModelService {
     private val client = OkHttpClient()
     private val gson = Gson()
     private val jsonMediaType = "application/json".toMediaType()
+    private var openAIClient: OpenAI? = null
 
     fun fetchModels(baseUrl: String, apiKey: String): List<Model> {
         val request = Request.Builder()
@@ -211,6 +225,50 @@ class AIModelService {
                 throw RuntimeException("Failed to fetch balance: ${response.code}")
             }
             return gson.fromJson(response.body?.string(), BalanceResponse::class.java)
+        }
+    }
+
+    fun initializeOpenAI(apiKey: String, proxyHost: String? = null, proxyPort: Int? = null) {
+        val config = OpenAIConfig(
+            token = apiKey,
+            // 如果提供了代理设置，则配置代理
+            proxy = if (!proxyHost.isNullOrBlank() && proxyPort != null) {
+                Proxy(
+                    type = Proxy.Type.HTTP,
+                    address = InetSocketAddress(proxyHost, proxyPort)
+                )
+            } else null
+        )
+        openAIClient = OpenAI(config)
+    }
+
+    @OptIn(BetaOpenAI::class)
+    suspend fun sendOpenAIMessage(
+        model: String,
+        message: String,
+        onChunk: (String) -> Unit
+    ) {
+        val openAI = openAIClient ?: throw IllegalStateException("OpenAI client not initialized")
+        
+        val chatCompletionRequest = ChatCompletionRequest(
+            model = ModelId(model),
+            messages = listOf(
+                OpenAIChatMessage(
+                    role = ChatRole.System,
+                    content = "You are a helpful assistant"
+                ),
+                OpenAIChatMessage(
+                    role = ChatRole.User,
+                    content = message
+                )
+            )
+        )
+
+        val completions: Flow<ChatCompletionChunk> = openAI.chatCompletions(chatCompletionRequest)
+        completions.collect { completion ->
+            completion.choices.firstOrNull()?.delta?.content?.let { content ->
+                onChunk(content)
+            }
         }
     }
 

@@ -9,13 +9,15 @@ import com.github.guchengod.projectassistant.services.AIModelService
 
 @State(
     name = "com.github.guchengod.projectassistant.settings.AISettingsState",
-    storages = [Storage("AISettingsPlugin.xml")]
+    storages = [Storage("ProjectAssistantSettings.xml")]
 )
 @Service(Service.Level.APP)
 class AISettingsState : PersistentStateComponent<AISettingsState> {
     var apiKey: String = ""
     var selectedModel: String = ""
     var provider: String = "DeepSeek"  // DeepSeek 或 OpenAI
+    var proxyHost: String? = null
+    var proxyPort: Int? = null
     
     val baseUrl: String
         get() = when (provider) {

@@ -51,6 +51,7 @@ class MyToolWindowFactory : ToolWindowFactory {
         private val settingsState = toolWindow.project.service<AISettingsState>()
         private val modelService = AIModelService()
         private lateinit var messageArea: JBTextArea
+        private lateinit var messageScrollPane: JBScrollPane
         private lateinit var inputField: JBTextArea
         private lateinit var sendButton: ActionLink
         private val coroutineScope = CoroutineScope(Dispatchers.IO + Job())
@@ -66,7 +67,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                     messageArea.append("$content\n\n")
                 }
                 // 滚动到底部
-                messageArea.caretPosition = messageArea.document.length
+//                messageArea.caretPosition = messageArea.document.length
             }
         }
 
@@ -93,7 +94,7 @@ class MyToolWindowFactory : ToolWindowFactory {
 
         private fun sendMessage(message: String) {
             if (message.isBlank()) return
-            
+
             appendMessage("用户", message)
 
             coroutineScope.launch {
@@ -182,10 +183,11 @@ class MyToolWindowFactory : ToolWindowFactory {
                     background = null
                     border = null
                 }
-                val messageScrollPane = JBScrollPane(messageArea).apply {
+                messageScrollPane = JBScrollPane(messageArea).apply {
                     border = null
                     viewport.isOpaque = false
                     setViewportBorder(null)
+                    verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
                 }
                 add(messageScrollPane, BorderLayout.CENTER)
                 
@@ -346,6 +348,8 @@ class AISettingsConfigurable(project: Project) : Configurable {
     private var modelComboBox: JComboBox<String>? = null
     private var providerComboBox: JComboBox<String>? = null
     private var balanceLabel: JLabel? = null
+    private var proxyHostField: JTextField? = null
+    private var proxyPortField: JTextField? = null
     private val settingsState = project.service<AISettingsState>()
     private val modelService = AIModelService()
 
@@ -458,9 +462,51 @@ class AISettingsConfigurable(project: Project) : Configurable {
             gbc.weightx = 1.0
             add(balanceLabel, gbc)
 
-            // Filler
+            // 添加代理配置UI
+            // 代理主机
             gbc.gridx = 0
             gbc.gridy = 4
+            gbc.weightx = 0.0
+            add(JLabel("代理主机:"), gbc)
+
+            proxyHostField = JTextField(30).apply {
+                text = settingsState.proxyHost
+            }
+            gbc.gridx = 1
+            gbc.gridy = 4
+            gbc.weightx = 1.0
+            add(proxyHostField, gbc)
+
+            // 代理端口
+            gbc.gridx = 0
+            gbc.gridy = 5
+            gbc.weightx = 0.0
+            add(JLabel("代理端口:"), gbc)
+
+            proxyPortField = JTextField(5).apply {
+                text = settingsState.proxyPort?.toString() ?: ""
+                // 只允许输入数字
+                document.addDocumentListener(object : DocumentListener {
+                    override fun insertUpdate(e: DocumentEvent) = validatePort()
+                    override fun removeUpdate(e: DocumentEvent) = validatePort()
+                    override fun changedUpdate(e: DocumentEvent) = validatePort()
+                    
+                    private fun validatePort() {
+                        val text = text
+                        if (text.isNotEmpty() && !text.matches(Regex("\\d+"))) {
+                            setText(text.filter { it.isDigit() })
+                        }
+                    }
+                })
+            }
+            gbc.gridx = 1
+            gbc.gridy = 5
+            gbc.weightx = 1.0
+            add(proxyPortField, gbc)
+
+            // Filler (移到最后)
+            gbc.gridx = 0
+            gbc.gridy = 6
             gbc.weighty = 1.0
             gbc.gridwidth = 2
             add(Box.createVerticalGlue(), gbc)
@@ -474,6 +520,10 @@ class AISettingsConfigurable(project: Project) : Configurable {
     private fun loadModels() {
         try {
             val apiKey = apiKeyField?.text ?: ""
+            if (apiKey.isEmpty()) {
+                modelComboBox?.removeAllItems()
+                return
+            }
             val baseUrl = when (providerComboBox?.selectedItem) {
                 "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
                 "OpenAI" -> AIModelService.OPENAI_BASE_URL
@@ -499,7 +549,9 @@ class AISettingsConfigurable(project: Project) : Configurable {
     override fun isModified(): Boolean {
         return apiKeyField?.text != settingsState.apiKey ||
                modelComboBox?.selectedItem != settingsState.selectedModel ||
-               providerComboBox?.selectedItem != settingsState.provider
+               providerComboBox?.selectedItem != settingsState.provider ||
+               proxyHostField?.text != settingsState.proxyHost ||
+               proxyPortField?.text?.toIntOrNull() != settingsState.proxyPort
     }
 
     @Throws(ConfigurationException::class)
@@ -509,5 +561,8 @@ class AISettingsConfigurable(project: Project) : Configurable {
             settingsState.selectedModel = it.toString()
         }
         providerComboBox?.selectedItem?.let { settingsState.provider = it.toString() }
+        // 保存代理设置
+        settingsState.proxyHost = proxyHostField?.text
+        settingsState.proxyPort = proxyPortField?.text?.toIntOrNull()
     }
 }
