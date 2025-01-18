@@ -1,37 +1,28 @@
 package com.github.guchengod.projectassistant.toolWindow
 
 import com.github.guchengod.projectassistant.services.AIModelService
+import com.github.guchengod.projectassistant.settings.AISettingsState
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.wm.ToolWindow
-import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBPanel
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.content.ContentFactory
-import javax.swing.*
-import java.awt.*
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ConfigurationException
-import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.options.ShowSettingsUtil
-import com.intellij.ui.components.JBTextArea
-import com.intellij.icons.AllIcons
-import com.intellij.ui.components.ActionLink
-import javax.swing.Box
-import com.intellij.util.ui.JBUI
-import com.github.guchengod.projectassistant.settings.AISettingsState
-import com.intellij.collaboration.ui.jbColorFromHex
-import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
-import javax.swing.AbstractAction
-import javax.swing.KeyStroke
-import kotlinx.coroutines.*
-import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
+import com.intellij.ui.components.*
+import com.intellij.ui.content.ContentFactory
+import com.intellij.util.ui.JBUI
+import kotlinx.coroutines.*
+import java.awt.*
 import java.awt.event.*
+import javax.swing.*
 import javax.swing.border.AbstractBorder
-import javax.swing.SwingUtilities
 
 class MyToolWindowFactory : ToolWindowFactory {
     init {
@@ -485,19 +476,6 @@ class AISettingsConfigurable(project: Project) : Configurable {
 
             proxyPortField = JTextField(5).apply {
                 text = settingsState.proxyPort?.toString() ?: ""
-                // 只允许输入数字
-                document.addDocumentListener(object : DocumentListener {
-                    override fun insertUpdate(e: DocumentEvent) = validatePort()
-                    override fun removeUpdate(e: DocumentEvent) = validatePort()
-                    override fun changedUpdate(e: DocumentEvent) = validatePort()
-                    
-                    private fun validatePort() {
-                        val text = text
-                        if (text.isNotEmpty() && !text.matches(Regex("\\d+"))) {
-                            setText(text.filter { it.isDigit() })
-                        }
-                    }
-                })
             }
             gbc.gridx = 1
             gbc.gridy = 5

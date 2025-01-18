@@ -15,6 +15,7 @@ import com.aallam.openai.api.chat.ChatRole
 import com.aallam.openai.api.model.ModelId
 import com.aallam.openai.client.OpenAI
 import com.aallam.openai.client.OpenAIConfig
+import com.aallam.openai.client.ProxyConfig
 import kotlinx.coroutines.flow.Flow
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -228,16 +229,24 @@ class AIModelService {
         }
     }
 
-    fun initializeOpenAI(apiKey: String, proxyHost: String? = null, proxyPort: Int? = null) {
+    fun initializeOpenAI(apiKey: String, proxyType: String? = null, proxyHost: String? = null, proxyPort: Int? = null) {
         val config = OpenAIConfig(
             token = apiKey,
             // 如果提供了代理设置，则配置代理
-            proxy = if (!proxyHost.isNullOrBlank() && proxyPort != null) {
-                Proxy(
-                    type = Proxy.Type.HTTP,
-                    address = InetSocketAddress(proxyHost, proxyPort)
-                )
-            } else null
+            proxy = when {
+                !proxyHost.isNullOrBlank() && proxyPort != null && proxyType == "http" -> {
+                    ProxyConfig.Http(
+                        url = "http://$proxyHost:$proxyPort",
+                    )
+                }
+                !proxyHost.isNullOrBlank() && proxyPort != null && proxyType == "socks" -> {
+                    ProxyConfig.Socks(
+                        host = proxyHost,
+                        port = proxyPort,
+                    )
+                }
+                else -> null
+            }
         )
         openAIClient = OpenAI(config)
     }
