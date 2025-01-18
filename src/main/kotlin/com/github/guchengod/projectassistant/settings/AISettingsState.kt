@@ -16,6 +16,7 @@ class AISettingsState : PersistentStateComponent<AISettingsState> {
     var apiKey: String = ""
     var selectedModel: String = ""
     var provider: String = "DeepSeek"  // DeepSeek 或 OpenAI
+    var proxyType: String = "none"  // 默认为无代理
     var proxyHost: String? = null
     var proxyPort: Int? = null
     

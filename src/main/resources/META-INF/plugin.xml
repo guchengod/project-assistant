@@ -20,6 +20,8 @@
         <!-- 添加设置服务 -->
         <projectService 
             serviceImplementation="com.github.guchengod.projectassistant.settings.AISettingsState"/>
+
+        <notificationGroup id="project.assistant.notification.group.id" displayType="BALLOON" />
     </extensions>
 
     <applicationListeners>

@@ -1,8 +1,10 @@
 package com.github.guchengod.projectassistant.toolWindow
 
+import com.github.guchengod.projectassistant.common.NotificationUtil
 import com.github.guchengod.projectassistant.services.AIModelService
 import com.github.guchengod.projectassistant.settings.AISettingsState
 import com.intellij.icons.AllIcons
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
@@ -90,18 +92,36 @@ class MyToolWindowFactory : ToolWindowFactory {
 
             coroutineScope.launch {
                 try {
-                    modelService.sendMessage(
-                        settingsState.baseUrl,
+                    // 初始化 OpenAI 客户端
+                    modelService.initializeOpenAI(
                         settingsState.apiKey,
-                        settingsState.selectedModel,
-                        message
-                    ) { chunk ->
-                        appendStreamContent(chunk)
+                        settingsState.proxyType,
+                        settingsState.proxyHost,
+                        settingsState.proxyPort
+                    )
+
+                    if (settingsState.provider == "OpenAI") {
+                        // 使用 OpenAI API
+                        modelService.sendOpenAIMessage(
+                            settingsState.selectedModel,
+                            message
+                        ) { chunk ->
+                            appendStreamContent(chunk)
+                        }
+                    } else {
+                        // 使用原有的 DeepSeek API
+                        modelService.sendMessage(
+                            settingsState.baseUrl,
+                            settingsState.apiKey,
+                            settingsState.selectedModel,
+                            message
+                        ) { chunk ->
+                            appendStreamContent(chunk)
+                        }
                     }
                     
                     withContext(Dispatchers.Main) {
                         messageArea.append("\n\n")  // Add newlines after response is complete
-                        // 恢复为正常状态
                         setProcessingState(false)
                         inputField.requestFocus()
                     }
@@ -112,7 +132,6 @@ class MyToolWindowFactory : ToolWindowFactory {
                             "发送消息失败: ${e.message}",
                             "错误"
                         )
-                        // 发生错误时也恢复为正常状态
                         setProcessingState(false)
                     }
                 }
@@ -339,8 +358,10 @@ class AISettingsConfigurable(project: Project) : Configurable {
     private var modelComboBox: JComboBox<String>? = null
     private var providerComboBox: JComboBox<String>? = null
     private var balanceLabel: JLabel? = null
+    private var proxyTypeGroup: ButtonGroup? = null  // 代理类型单选按钮组
     private var proxyHostField: JTextField? = null
     private var proxyPortField: JTextField? = null
+    private var proxyPanel: JPanel? = null  // 用于容纳代理主机和端口的面板
     private val settingsState = project.service<AISettingsState>()
     private val modelService = AIModelService()
 
@@ -453,36 +474,97 @@ class AISettingsConfigurable(project: Project) : Configurable {
             gbc.weightx = 1.0
             add(balanceLabel, gbc)
 
-            // 添加代理配置UI
-            // 代理主机
+            // 添加代理类型选择（单选按钮）
             gbc.gridx = 0
             gbc.gridy = 4
             gbc.weightx = 0.0
-            add(JLabel("代理主机:"), gbc)
+            add(JLabel("代理类型:"), gbc)
 
-            proxyHostField = JTextField(30).apply {
-                text = settingsState.proxyHost
+            // 创建单选按钮面板
+            val radioPanel = JPanel(FlowLayout(FlowLayout.LEFT, 10, 10))
+            //radioPanel设置右边距
+            proxyTypeGroup = ButtonGroup()
+            
+            val noneRadio = JRadioButton("无代理", settingsState.proxyType == "none").apply {
+                actionCommand = "无代理"  // 设置 actionCommand
             }
+            val httpRadio = JRadioButton("HTTP", settingsState.proxyType == "http").apply {
+                actionCommand = "HTTP"    // 设置 actionCommand
+            }
+            val socksRadio = JRadioButton("SOCKS", settingsState.proxyType == "socks").apply {
+                actionCommand = "SOCKS"   // 设置 actionCommand
+            }
+            
+            proxyTypeGroup?.add(noneRadio)
+            proxyTypeGroup?.add(httpRadio)
+            proxyTypeGroup?.add(socksRadio)
+            
+            radioPanel.add(noneRadio)
+            radioPanel.add(httpRadio)
+            radioPanel.add(socksRadio)
+
             gbc.gridx = 1
             gbc.gridy = 4
             gbc.weightx = 1.0
-            add(proxyHostField, gbc)
+            add(radioPanel, gbc)
 
-            // 代理端口
+            // 创建代理配置面板
+            proxyPanel = JPanel(GridBagLayout()).apply {
+                val proxyGbc = GridBagConstraints().apply {
+                    fill = GridBagConstraints.HORIZONTAL
+                    insets = JBUI.insets(5)
+                }
+
+                // 代理主机
+                proxyGbc.gridx = 0
+                proxyGbc.gridy = 0
+                proxyGbc.weightx = 0.0
+                add(JLabel("代理主机:"), proxyGbc)
+
+                proxyHostField = JTextField(30).apply {
+                    text = settingsState.proxyHost
+                }
+                proxyGbc.gridx = 1
+                proxyGbc.gridy = 0
+                proxyGbc.weightx = 1.0
+                add(proxyHostField, proxyGbc)
+
+                // 代理端口
+                proxyGbc.gridx = 0
+                proxyGbc.gridy = 1
+                proxyGbc.weightx = 0.0
+                add(JLabel("代理端口:"), proxyGbc)
+
+                proxyPortField = JTextField(5).apply {
+                    text = settingsState.proxyPort?.toString() ?: ""
+                }
+                proxyGbc.gridx = 1
+                proxyGbc.gridy = 1
+                proxyGbc.weightx = 1.0
+                add(proxyPortField, proxyGbc)
+            }
+
             gbc.gridx = 0
             gbc.gridy = 5
-            gbc.weightx = 0.0
-            add(JLabel("代理端口:"), gbc)
-
-            proxyPortField = JTextField(5).apply {
-                text = settingsState.proxyPort?.toString() ?: ""
-            }
-            gbc.gridx = 1
-            gbc.gridy = 5
+            gbc.gridwidth = 2
             gbc.weightx = 1.0
-            add(proxyPortField, gbc)
 
-            // Filler (移到最后)
+            add(proxyPanel, gbc)
+
+            // 设置代理面板的初始可见性
+            proxyPanel?.isVisible = settingsState.proxyType != "none"
+
+            // 添加单选按钮切换监听器
+            val radioListener = ActionListener { e ->
+                val selected = (e.source as? JRadioButton)?.text ?: return@ActionListener
+                proxyPanel?.isVisible = selected != "无代理"
+            }
+            
+            noneRadio.addActionListener(radioListener)
+            httpRadio.addActionListener(radioListener)
+            socksRadio.addActionListener(radioListener)
+
+            // Filler
             gbc.gridx = 0
             gbc.gridy = 6
             gbc.weighty = 1.0
@@ -516,20 +598,26 @@ class AISettingsConfigurable(project: Project) : Configurable {
             // 恢复选中的模型
             modelComboBox?.selectedItem = settingsState.selectedModel
         } catch (e: Exception) {
-            Messages.showErrorDialog(
-                mainPanel,
-                "获取模型列表失败: ${e.message}",
-                "错误"
-            )
+            NotificationUtil.showNotification("获取模型列表失败", e.message ?: "获取模型列表失败", NotificationType.ERROR)
         }
     }
 
     override fun isModified(): Boolean {
+        val selectedProxyType = when (proxyTypeGroup?.selection?.actionCommand) {
+            "无代理" -> "none"
+            "HTTP" -> "http"
+            "SOCKS" -> "socks"
+            else -> "none"
+        }
+        
         return apiKeyField?.text != settingsState.apiKey ||
                modelComboBox?.selectedItem != settingsState.selectedModel ||
                providerComboBox?.selectedItem != settingsState.provider ||
-               proxyHostField?.text != settingsState.proxyHost ||
-               proxyPortField?.text?.toIntOrNull() != settingsState.proxyPort
+               selectedProxyType != settingsState.proxyType ||
+               (selectedProxyType != "none" && (
+                   proxyHostField?.text != settingsState.proxyHost ||
+                   proxyPortField?.text?.toIntOrNull() != settingsState.proxyPort
+               ))
     }
 
     @Throws(ConfigurationException::class)
@@ -539,8 +627,22 @@ class AISettingsConfigurable(project: Project) : Configurable {
             settingsState.selectedModel = it.toString()
         }
         providerComboBox?.selectedItem?.let { settingsState.provider = it.toString() }
+        
         // 保存代理设置
-        settingsState.proxyHost = proxyHostField?.text
-        settingsState.proxyPort = proxyPortField?.text?.toIntOrNull()
+        settingsState.proxyType = when (proxyTypeGroup?.selection?.actionCommand) {
+            "无代理" -> "none"
+            "HTTP" -> "http"
+            "SOCKS" -> "socks"
+            else -> "none"
+        }
+        
+        // 只有在非"无代理"模式下才保存代理配置
+        if (settingsState.proxyType != "none") {
+            settingsState.proxyHost = proxyHostField?.text?.takeIf { it.isNotBlank() }
+            settingsState.proxyPort = proxyPortField?.text?.toIntOrNull()
+        } else {
+            settingsState.proxyHost = null
+            settingsState.proxyPort = null
+        }
     }
 }
