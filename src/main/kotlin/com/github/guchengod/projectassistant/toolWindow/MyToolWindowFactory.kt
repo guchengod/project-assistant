@@ -25,6 +25,13 @@ import java.awt.*
 import java.awt.event.*
 import javax.swing.*
 import javax.swing.border.AbstractBorder
+import javax.swing.text.BadLocationException
+import javax.swing.text.DefaultStyledDocument
+import javax.swing.text.EditorKit
+import javax.swing.text.StyleConstants
+import javax.swing.text.TabSet
+import javax.swing.text.TabStop
+import javax.swing.text.html.HTMLEditorKit
 
 class MyToolWindowFactory : ToolWindowFactory {
     init {
@@ -43,38 +50,125 @@ class MyToolWindowFactory : ToolWindowFactory {
         private val modelLabel = JBLabel()
         private val settingsState = toolWindow.project.service<AISettingsState>()
         private val modelService = AIModelService()
-        private lateinit var messageArea: JBTextArea
         private lateinit var messageScrollPane: JBScrollPane
         private lateinit var inputField: JBTextArea
         private lateinit var sendButton: ActionLink
         private val coroutineScope = CoroutineScope(Dispatchers.IO + Job())
 
+        private lateinit var messagePane: JTextPane
+
         private fun updateModelLabel() {
             modelLabel.text = "当前模型: ${settingsState.selectedModel}"
         }
 
+        private fun createMessagePane(): JTextPane {
+            return JTextPane().apply {
+                isEditable = false
+                isOpaque = false
+                background = null
+                border = null
+                
+                // 使用DefaultStyledDocument而不是HTMLDocument
+                document = DefaultStyledDocument()
+                
+                // 设置基本样式
+                val defaultStyle = addStyle("default", null).apply {
+                    StyleConstants.setFontFamily(this, JBUI.Fonts.label().family)
+                    StyleConstants.setFontSize(this, JBUI.Fonts.label().size)
+                    StyleConstants.setForeground(this, JBColor.namedColor(
+                        "Label.foreground",
+                        JBColor.BLACK
+                    ))
+                }
+                
+                // 应用默认样式
+                styledDocument.setParagraphAttributes(0, styledDocument.length, defaultStyle, true)
+            }
+        }
+
         private fun appendMessage(role: String, content: String) {
             ApplicationManager.getApplication().invokeLater {
-                messageArea.append("$role\n")
-                if (role == "用户") {
-                    messageArea.append("$content\n\n")
+                val doc = messagePane.styledDocument
+
+                try {
+                    // 添加用户图标（如果是用户消息）
+                    if (role == "用户") {
+                        val iconStyle = messagePane.addStyle("IconStyle", null)
+                        StyleConstants.setIcon(iconStyle, AllIcons.General.User)
+                        doc.insertString(doc.length, " ", iconStyle) // 插入一个带图标的空格
+                    }
+                    
+                    // 添加时间
+                    val timeStyle = messagePane.addStyle("TimeStyle", null).apply {
+                        StyleConstants.setForeground(this, JBColor.namedColor(
+                            "Label.infoForeground",
+                            JBColor(0x787878, 0x909090)
+                        ))
+                        StyleConstants.setFontSize(this, JBUI.scaleFontSize(12f))
+                    }
+                    val currentTime = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    val timeText = "\t$currentTime\n"
+                    doc.insertString(doc.length, " $currentTime\n", timeStyle)
+
+                    val paragraphStyle = messagePane.addStyle("TimeParagraph", null).apply {
+                        val tabStopPos = JBUI.scale(300) // 根据UI缩放调整
+                        val tabs = arrayOf(TabStop(tabStopPos.toFloat(), TabStop.ALIGN_RIGHT, TabStop.ALIGN_LEFT))
+                        StyleConstants.setTabSet(this, TabSet(tabs))
+                    }
+
+                    // 添加消息内容
+                    if (role == "用户") {
+                        val userStyle = messagePane.addStyle("UserMessage", null).apply {
+                            StyleConstants.setForeground(this, JBColor.namedColor(
+                                "Label.foreground",
+                                JBColor.BLACK
+                            ))
+                            StyleConstants.setLineSpacing(this, 0.1f)
+                        }
+                        val startOffset = doc.length
+                        doc.insertString(doc.length, "$content\n\n", userStyle)
+                        doc.setParagraphAttributes(startOffset, timeText.length, paragraphStyle, false)
+                    }
+
+                    val iconStyle = messagePane.addStyle("IconStyle", null)
+                    StyleConstants.setIcon(iconStyle, AllIcons.AiAssistant.AiAssistantColored)
+                    doc.insertString(doc.length, " ", iconStyle)
+                    doc.insertString(doc.length, "\n", null);
+                    // 自动滚动到底部
+                    messagePane.caretPosition = doc.length
+                } catch (e: BadLocationException) {
+                    // 处理异常
                 }
-                // 滚动到底部
-//                messageArea.caretPosition = messageArea.document.length
             }
         }
 
         private fun appendStreamContent(content: String) {
-            if (ApplicationManager.getApplication().isDispatchThread) {
-                messageArea.append(content)
-                messageArea.caretPosition = messageArea.document.length
-            } else {
-                ApplicationManager.getApplication().invokeLater {
-                    messageArea.append(content)
-                    messageArea.caretPosition = messageArea.document.length
+
+            fun doAppend() {
+                val doc = messagePane.styledDocument
+                val style = messagePane.addStyle("StreamContent", null).apply {
+                    StyleConstants.setForeground(this, JBColor.namedColor(
+                        "Label.foreground",
+                        JBColor.BLACK
+                    ))
+                    StyleConstants.setFontFamily(this, JBUI.Fonts.label().family)
+                }
+
+                try {
+                    doc.insertString(doc.length, content, style)
+                    messagePane.caretPosition = doc.length
+                } catch (e: BadLocationException) {
+                    // 处理异常
                 }
             }
+
+            if (ApplicationManager.getApplication().isDispatchThread) {
+                doAppend()
+            } else {
+                ApplicationManager.getApplication().invokeLater { doAppend() }
+            }
         }
+
 
         private fun setProcessingState(processing: Boolean) {
             SwingUtilities.invokeLater {
@@ -92,36 +186,28 @@ class MyToolWindowFactory : ToolWindowFactory {
 
             coroutineScope.launch {
                 try {
-                    // 初始化 OpenAI 客户端
-                    modelService.initializeOpenAI(
+                    // 使用原有的 DeepSeek API
+                    modelService.sendMessage(
+                        settingsState.baseUrl,
                         settingsState.apiKey,
-                        settingsState.proxyType,
-                        settingsState.proxyHost,
-                        settingsState.proxyPort
-                    )
-
-                    if (settingsState.provider == "OpenAI") {
-                        // 使用 OpenAI API
-                        modelService.sendOpenAIMessage(
-                            settingsState.selectedModel,
-                            message
-                        ) { chunk ->
-                            appendStreamContent(chunk)
-                        }
-                    } else {
-                        // 使用原有的 DeepSeek API
-                        modelService.sendMessage(
-                            settingsState.baseUrl,
-                            settingsState.apiKey,
-                            settingsState.selectedModel,
-                            message
-                        ) { chunk ->
-                            appendStreamContent(chunk)
-                        }
+                        settingsState.selectedModel,
+                        message
+                    ) { chunk ->
+                        appendStreamContent(chunk)
                     }
                     
                     withContext(Dispatchers.Main) {
-                        messageArea.append("\n\n")  // Add newlines after response is complete
+                        // 添加消息结束后的换行（使用样式化方式）
+                        val doc = messagePane.styledDocument
+//                        try {
+//                            val style = messagePane.addStyle("EndStyle", null).apply {
+//                                StyleConstants.setFontSize(this, JBUI.scaleFontSize(1f)) // 最小化样式影响
+//                            }
+//                            doc.insertString(doc.length, "\n\n", style)
+//                        } catch (e: BadLocationException) {
+//                            // 异常处理
+//                        }
+                        doc.insertString(doc.length, "\n", null);
                         setProcessingState(false)
                         inputField.requestFocus()
                     }
@@ -183,17 +269,10 @@ class MyToolWindowFactory : ToolWindowFactory {
             // 聊天面板
             val chatPanel = JBPanel<JBPanel<*>>().apply {
                 layout = BorderLayout(10, 10)
-                
-                // 消息显示区域
-                messageArea = JBTextArea().apply {
-                    isEditable = false
-                    lineWrap = true
-                    wrapStyleWord = true
-                    isOpaque = false
-                    background = null
-                    border = null
-                }
-                messageScrollPane = JBScrollPane(messageArea).apply {
+
+                // ================= 消息显示区域（修改部分） =================
+                messagePane = createMessagePane()
+                messageScrollPane = JBScrollPane(messagePane).apply {
                     border = null
                     viewport.isOpaque = false
                     setViewportBorder(null)
@@ -264,7 +343,14 @@ class MyToolWindowFactory : ToolWindowFactory {
                                 }
                             })
 
-                            background = JBColor(Color(0x2B2B2B), Color(0x2B2B2B))  // 深褐色背景
+                            // 使用主题适配颜色
+                            background = JBColor.namedColor(
+                                "EditorPane.background",
+                            )
+
+                            foreground = JBColor.namedColor(
+                                "EditorPane.foreground",
+                            )
 
                             // 添加文本变化监听器来实现自适应高度
                             document.addDocumentListener(object : javax.swing.event.DocumentListener {
@@ -299,7 +385,7 @@ class MyToolWindowFactory : ToolWindowFactory {
 
                             // 添加快捷键支持
                             getInputMap(JComponent.WHEN_FOCUSED).put(
-                                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK),
+                                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0),
                                 "send"
                             )
                             actionMap.put("send", object : AbstractAction() {
@@ -313,11 +399,13 @@ class MyToolWindowFactory : ToolWindowFactory {
                             })
                         }
                         add(inputField, BorderLayout.CENTER)
+
+
                         
                         // 发送按钮
                         sendButton = ActionLink("").apply {
                             icon = AllIcons.Actions.Execute
-                            toolTipText = "发送 (Ctrl+Enter)"
+                            toolTipText = "发送 (Enter)"
                         }
                         sendButton.addActionListener {
                             val message = inputField.text.trim()
