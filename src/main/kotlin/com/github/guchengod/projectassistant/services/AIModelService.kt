@@ -1,12 +1,16 @@
 package com.github.guchengod.projectassistant.services
 
-
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
+import java.io.IOException
+import okhttp3.Interceptor
+import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicReference
 
 data class ModelResponse(
     val `object`: String,
@@ -121,104 +125,244 @@ data class BalanceResponse(
     val balanceInfos: List<BalanceInfo>
 )
 
-class AIModelService {
-    private val client = OkHttpClient()
+class AIModelService private constructor() {
     private val gson = Gson()
     private val jsonMediaType = "application/json".toMediaType()
+    
+    // 使用 AtomicReference 确保线程安全的客户端引用
+    private val clientRef = AtomicReference<OkHttpClient>()
 
-    fun fetchModels(baseUrl: String, apiKey: String): List<Model> {
-        val request = Request.Builder()
-            .url("$baseUrl/models")
-            .get()
-            .addHeader("Accept", "application/json")
-            .addHeader("Authorization", "Bearer $apiKey")
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw RuntimeException("Failed to fetch models: ${response.code}")
-            }
-            return gson.fromJson(response.body?.string(), ModelResponse::class.java).data
+    // 懒加载初始化 OkHttpClient
+    private fun getClient(): OkHttpClient {
+        return clientRef.get() ?: synchronized(this) {
+            clientRef.get() ?: createNewClient().also { clientRef.set(it) }
         }
     }
 
-    fun sendMessage(
-        baseUrl: String,
-        apiKey: String,
-        model: String,
+    private fun createNewClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(RetryInterceptor(maxRetries = 3))
+            .addInterceptor(ErrorInterceptor())
+            .build()
+    }
+
+    fun createService(config: AIServiceConfig): AIService {
+        return when (config.provider) {
+            Provider.DEEPSEEK -> DeepSeekService(config, this)
+            Provider.OPENAI -> OpenAIService(config, this)
+        }
+    }
+
+    // 将原来的公共方法改为内部方法
+    internal fun executeRequest(request: Request): okhttp3.Response {
+        return executeWithRetry {
+            getClient().newCall(request).execute()
+        }
+    }
+
+    // 重试拦截器
+    private class RetryInterceptor(private val maxRetries: Int) : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+            var retryCount = 0
+            var response: okhttp3.Response? = null
+            var exception: IOException? = null
+
+            while (retryCount < maxRetries) {
+                try {
+                    response = chain.proceed(chain.request())
+                    if (response.isSuccessful) {
+                        return response
+                    } else if (response.code in 500..599) {
+                        response.close()
+                        retryCount++
+                        Thread.sleep(1000L * retryCount) // 指数退避
+                        continue
+                    }
+                    return response
+                } catch (e: IOException) {
+                    exception = e
+                    retryCount++
+                    if (retryCount == maxRetries) break
+                    Thread.sleep(1000L * retryCount)
+                }
+            }
+
+            throw exception ?: IOException("Request failed after $maxRetries retries")
+        }
+    }
+
+    // 错误处理拦截器
+    private class ErrorInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+            try {
+                val response = chain.proceed(chain.request())
+                when (response.code) {
+                    in 400..499 -> throw APIException("Client error", response.code)
+                    in 500..599 -> throw APIException("Server error", response.code)
+                }
+                return response
+            } catch (e: SocketTimeoutException) {
+                throw APIException("Connection timeout", -1, e)
+            } catch (e: IOException) {
+                throw APIException("Network error", -1, e)
+            }
+        }
+    }
+
+    // 自定义异常类
+    class APIException(
         message: String,
-        onChunk: (String) -> Unit
-    ) {
+        val statusCode: Int,
+        cause: Throwable? = null
+    ) : Exception("$message (Status Code: $statusCode)", cause)
+
+    // 通用重试执行方法
+    private fun <T> executeWithRetry(block: () -> T): T {
+        var lastException: Exception? = null
+        repeat(3) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastException = e
+                if (attempt < 2) { // 最后一次尝试不需要等待
+                    Thread.sleep(1000L * (attempt + 1))
+                }
+            }
+        }
+        throw lastException ?: RuntimeException("Unknown error occurred")
+    }
+
+    companion object {
+        const val DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+        const val OPENAI_BASE_URL = "https://api.openai.com/v1"
+
+        @Volatile
+        private var instance: AIModelService? = null
+
+        fun getInstance(): AIModelService {
+            return instance ?: synchronized(this) {
+                instance ?: AIModelService().also { instance = it }
+            }
+        }
+    }
+}
+
+// 配置数据类
+data class AIServiceConfig(
+    val provider: Provider,
+    val apiKey: String,
+    val model: String,
+    val baseUrl: String,
+    val proxyType: String? = null,
+    val proxyHost: String? = null,
+    val proxyPort: Int? = null
+)
+
+enum class Provider {
+    DEEPSEEK, OPENAI
+}
+
+// DeepSeek 实现
+private class DeepSeekService(
+    private val config: AIServiceConfig,
+    private val modelService: AIModelService
+) : AIService {
+    
+    override fun fetchModels(): List<Model> {
+        val request = Request.Builder()
+            .url("${config.baseUrl}/models")
+            .get()
+            .addHeader("Accept", "application/json")
+            .addHeader("Authorization", "Bearer ${config.apiKey}")
+            .build()
+
+        modelService.executeRequest(request).use { response ->
+            if (!response.isSuccessful) {
+                throw AIModelService.APIException("Failed to fetch models", response.code)
+            }
+            return Gson().fromJson(response.body?.string(), ModelResponse::class.java).data
+        }
+    }
+
+    override fun sendMessage(message: String, onChunk: (String) -> Unit) {
         val chatRequest = ChatRequest(
             messages = listOf(
                 ChatMessage("system", "You are a helpful assistant"),
                 ChatMessage("user", message)
             ),
-            model = model
+            model = config.model
         )
 
-        val requestBody = gson.toJson(chatRequest).toRequestBody(jsonMediaType)
+        val requestBody = Gson().toJson(chatRequest)
+            .toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder()
-            .url("$baseUrl/chat/completions")
+            .url("${config.baseUrl}/chat/completions")
             .post(requestBody)
             .addHeader("Content-Type", "application/json")
             .addHeader("Accept", "application/json")
-            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Authorization", "Bearer ${config.apiKey}")
             .build()
 
-        client.newCall(request).execute().use { response ->
+        modelService.executeRequest(request).use { response ->
             if (!response.isSuccessful) {
-                throw RuntimeException("Failed to send message: ${response.code}")
+                throw AIModelService.APIException("Failed to send message", response.code)
             }
 
-            print("Response: ${response.body}")
-            response.body?.let { body ->
-                body.source().use { source ->
-                    while (!source.exhausted()) {
-                        val line = source.readUtf8Line() ?: continue
-                        if (line.isEmpty()) continue
+            response.body?.source()?.use { source ->
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: continue
+                    if (line.isEmpty() || !line.startsWith("data: ")) continue
+                    
+                    val data = line.substring(6)
+                    if (data == "[DONE]") break
 
-                        if (!line.startsWith("data: ")) continue
-                        val data = line.substring(6)
-
-                        if (data == "[DONE]") break
-
-                        try {
-                            val streamResponse = gson.fromJson(data, StreamResponse::class.java)
-                            val content = streamResponse.choices.firstOrNull()?.delta?.content
-                            if (content != null) {
-                                onChunk(content)
-                            }
-                        } catch (e: Exception) {
-                            // Skip malformed JSON
-                            continue
-                        }
+                    try {
+                        val streamResponse = Gson().fromJson(data, StreamResponse::class.java)
+                        streamResponse.choices.firstOrNull()?.delta?.content?.let(onChunk)
+                    } catch (e: Exception) {
+                        continue
                     }
                 }
             }
         }
     }
 
-    fun fetchBalance(baseUrl: String, apiKey: String): BalanceResponse {
+    override fun fetchBalance(): BalanceResponse {
         val request = Request.Builder()
-            .url("$baseUrl/user/balance")
+            .url("${config.baseUrl}/user/balance")
             .get()
             .addHeader("Accept", "application/json")
-            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Authorization", "Bearer ${config.apiKey}")
             .build()
 
-        client.newCall(request).execute().use { response ->
+        modelService.executeRequest(request).use { response ->
             if (!response.isSuccessful) {
-                throw RuntimeException("Failed to fetch balance: ${response.code}")
+                throw AIModelService.APIException("Failed to fetch balance", response.code)
             }
-            return gson.fromJson(response.body?.string(), BalanceResponse::class.java)
+            return Gson().fromJson(response.body?.string(), BalanceResponse::class.java)
         }
     }
+}
 
-
-    companion object {
-        const val DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-        const val OPENAI_BASE_URL = "https://api.openai.com/v1"
+// OpenAI 实现（类似 DeepSeekService）
+private class OpenAIService(
+    private val config: AIServiceConfig,
+    private val modelService: AIModelService
+) : AIService {
+    override fun fetchModels(): List<Model> {
+        TODO("Not yet implemented")
     }
+
+    override fun sendMessage(message: String, onChunk: (String) -> Unit) {
+        TODO("Not yet implemented")
+    }
+
+    override fun fetchBalance(): BalanceResponse {
+        TODO("Not yet implemented")
+    }
+
 }

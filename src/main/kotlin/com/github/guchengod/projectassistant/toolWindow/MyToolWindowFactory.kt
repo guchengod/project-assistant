@@ -32,6 +32,9 @@ import javax.swing.text.StyleConstants
 import javax.swing.text.TabSet
 import javax.swing.text.TabStop
 import javax.swing.text.html.HTMLEditorKit
+import com.github.guchengod.projectassistant.services.AIService
+import com.github.guchengod.projectassistant.services.AIServiceConfig
+import com.github.guchengod.projectassistant.services.Provider
 
 class MyToolWindowFactory : ToolWindowFactory {
     init {
@@ -49,13 +52,31 @@ class MyToolWindowFactory : ToolWindowFactory {
     class MyToolWindow(private val toolWindow: ToolWindow) {
         private val modelLabel = JBLabel()
         private val settingsState = toolWindow.project.service<AISettingsState>()
-        private val modelService = AIModelService()
+        private var aiService: AIService? = null
         private lateinit var messageScrollPane: JBScrollPane
         private lateinit var inputField: JBTextArea
         private lateinit var sendButton: ActionLink
         private val coroutineScope = CoroutineScope(Dispatchers.IO + Job())
 
         private lateinit var messagePane: JTextPane
+
+        private fun initializeAIService() {
+            val config = AIServiceConfig(
+                provider = when (settingsState.provider) {
+                    "DeepSeek" -> Provider.DEEPSEEK
+                    "OpenAI" -> Provider.OPENAI
+                    else -> Provider.DEEPSEEK
+                },
+                apiKey = settingsState.apiKey,
+                model = settingsState.selectedModel,
+                baseUrl = settingsState.baseUrl,
+                proxyType = settingsState.proxyType,
+                proxyHost = settingsState.proxyHost,
+                proxyPort = settingsState.proxyPort
+            )
+            
+            aiService = AIModelService.getInstance().createService(config)
+        }
 
         private fun updateModelLabel() {
             modelLabel.text = "当前模型: ${settingsState.selectedModel}"
@@ -181,32 +202,21 @@ class MyToolWindowFactory : ToolWindowFactory {
 
         private fun sendMessage(message: String) {
             if (message.isBlank()) return
+            
+            if (aiService == null) {
+                initializeAIService()
+            }
 
             appendMessage("用户", message)
 
             coroutineScope.launch {
                 try {
-                    // 使用原有的 DeepSeek API
-                    modelService.sendMessage(
-                        settingsState.baseUrl,
-                        settingsState.apiKey,
-                        settingsState.selectedModel,
-                        message
-                    ) { chunk ->
+                    aiService?.sendMessage(message) { chunk ->
                         appendStreamContent(chunk)
                     }
                     
                     withContext(Dispatchers.Main) {
-                        // 添加消息结束后的换行（使用样式化方式）
                         val doc = messagePane.styledDocument
-//                        try {
-//                            val style = messagePane.addStyle("EndStyle", null).apply {
-//                                StyleConstants.setFontSize(this, JBUI.scaleFontSize(1f)) // 最小化样式影响
-//                            }
-//                            doc.insertString(doc.length, "\n\n", style)
-//                        } catch (e: BadLocationException) {
-//                            // 异常处理
-//                        }
                         doc.insertString(doc.length, "\n", null);
                         setProcessingState(false)
                         inputField.requestFocus()
@@ -451,7 +461,7 @@ class AISettingsConfigurable(project: Project) : Configurable {
     private var proxyPortField: JTextField? = null
     private var proxyPanel: JPanel? = null  // 用于容纳代理主机和端口的面板
     private val settingsState = project.service<AISettingsState>()
-    private val modelService = AIModelService()
+    private lateinit var aiService:AIService
 
     @NlsContexts.ConfigurableName
     override fun getDisplayName() = "project assistant"
@@ -528,14 +538,9 @@ class AISettingsConfigurable(project: Project) : Configurable {
             val balanceButton = JButton("查询余额").apply {
                 addActionListener {
                     try {
-                        val apiKey = apiKeyField?.text ?: ""
-                        val baseUrl = when (providerComboBox?.selectedItem) {
-                            "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
-                            "OpenAI" -> AIModelService.OPENAI_BASE_URL
-                            else -> AIModelService.DEEPSEEK_BASE_URL
-                        }
+                        initializeAIService()
                         
-                        val balance = modelService.fetchBalance(baseUrl, apiKey)
+                        val balance = aiService.fetchBalance()
                         val balanceInfo = balance.balanceInfos.firstOrNull()
                         if (balanceInfo != null) {
                             balanceLabel?.text = "<html>总余额: ${balanceInfo.totalBalance} ${balanceInfo.currency}<br>" +
@@ -663,6 +668,24 @@ class AISettingsConfigurable(project: Project) : Configurable {
             loadModels()
         }
         return mainPanel!!
+    }
+
+    private fun initializeAIService() {
+        val config = AIServiceConfig(
+            provider = when (settingsState.provider) {
+                "DeepSeek" -> Provider.DEEPSEEK
+                "OpenAI" -> Provider.OPENAI
+                else -> Provider.DEEPSEEK
+            },
+            apiKey = settingsState.apiKey,
+            model = settingsState.selectedModel,
+            baseUrl = settingsState.baseUrl,
+            proxyType = settingsState.proxyType,
+            proxyHost = settingsState.proxyHost,
+            proxyPort = settingsState.proxyPort
+        )
+
+        aiService = AIModelService.getInstance().createService(config)
     }
 
     private fun loadModels() {
