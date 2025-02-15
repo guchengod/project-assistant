@@ -9,12 +9,12 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.guchengod.projectassistant.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
+        <toolWindow factoryClass="com.github.guchengod.projectassistant.toolWindow.MyToolWindowFactory" id="Project Assistant"/>
         
         <!-- 添加设置配置 -->
         <projectConfigurable 
             instance="com.github.guchengod.projectassistant.toolWindow.AISettingsConfigurable"
-            displayName="AI Settings"
+            displayName="Project Assistant"
             id="com.github.guchengod.projectassistant.settings.AISettingsConfigurable"/>
             
         <!-- 添加设置服务 -->

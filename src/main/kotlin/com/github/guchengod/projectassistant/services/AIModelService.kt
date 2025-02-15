@@ -287,12 +287,9 @@ private class DeepSeekService(
         }
     }
 
-    override fun sendMessage(message: String, onChunk: (String) -> Unit) {
+    override fun sendMessage(messages: List<ChatMessage>, onChunk: (String) -> Unit) {
         val chatRequest = ChatRequest(
-            messages = listOf(
-                ChatMessage("system", "You are a helpful assistant"),
-                ChatMessage("user", message)
-            ),
+            messages = messages,
             model = config.model
         )
 
@@ -357,7 +354,7 @@ private class OpenAIService(
         TODO("Not yet implemented")
     }
 
-    override fun sendMessage(message: String, onChunk: (String) -> Unit) {
+    override fun sendMessage(messages: List<ChatMessage>, onChunk: (String) -> Unit) {
         TODO("Not yet implemented")
     }
 

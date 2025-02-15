@@ -1,10 +1,7 @@
 package com.github.guchengod.projectassistant.toolWindow
 
 import com.github.guchengod.projectassistant.common.NotificationUtil
-import com.github.guchengod.projectassistant.services.AIModelService
-import com.github.guchengod.projectassistant.services.AIService
-import com.github.guchengod.projectassistant.services.AIServiceConfig
-import com.github.guchengod.projectassistant.services.Provider
+import com.github.guchengod.projectassistant.services.*
 import com.github.guchengod.projectassistant.settings.AISettingsState
 import com.intellij.icons.AllIcons
 import com.intellij.notification.NotificationType
@@ -49,7 +46,7 @@ class MyToolWindowFactory : ToolWindowFactory {
         private var aiService: AIService? = null
         private lateinit var messageScrollPane: JBScrollPane
         private lateinit var inputField: JBTextArea
-        private lateinit var sendButton: ActionLink
+        private lateinit var sendButton: JButton
         private val coroutineScope = CoroutineScope(Dispatchers.IO + Job())
 
         private lateinit var messagePane: JTextPane
@@ -71,6 +68,7 @@ class MyToolWindowFactory : ToolWindowFactory {
             
             aiService = AIModelService.getInstance().createService(config)
         }
+
 
         private fun updateModelLabel() {
             modelLabel.text = "当前模型: ${settingsState.selectedModel}"
@@ -124,6 +122,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                     val currentTime = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
                     val timeText = "\t$currentTime\n"
                     doc.insertString(doc.length, " $currentTime\n", timeStyle)
+                    doc.insertString(doc.length, "\n", null);
 
                     val paragraphStyle = messagePane.addStyle("TimeParagraph", null).apply {
                         val tabStopPos = JBUI.scale(300) // 根据UI缩放调整
@@ -190,7 +189,6 @@ class MyToolWindowFactory : ToolWindowFactory {
                 inputField.isEnabled = !processing
                 sendButton.isEnabled = !processing
                 sendButton.icon = if (processing) AllIcons.Actions.Suspend else AllIcons.Actions.Execute
-                sendButton.repaint()
             }
         }
 
@@ -201,11 +199,17 @@ class MyToolWindowFactory : ToolWindowFactory {
                 initializeAIService()
             }
 
+            setProcessingState(true)
+
             appendMessage("用户", message)
 
             coroutineScope.launch {
                 try {
-                    aiService?.sendMessage(message) { chunk ->
+                   val messages = listOf(
+                        ChatMessage("system", "You are a helpful assistant"),
+                        ChatMessage("user", message)
+                    )
+                    aiService?.sendMessage(messages) { chunk ->
                         appendStreamContent(chunk)
                     }
                     
@@ -273,14 +277,19 @@ class MyToolWindowFactory : ToolWindowFactory {
             // 聊天面板
             val chatPanel = JBPanel<JBPanel<*>>().apply {
                 layout = BorderLayout(10, 10)
+                border = null
+                isOpaque = false
+                background = null
 
                 // ================= 消息显示区域（修改部分） =================
                 messagePane = createMessagePane()
                 messageScrollPane = JBScrollPane(messagePane).apply {
                     border = null
                     viewport.isOpaque = false
-                    setViewportBorder(null)
-                    verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
+                    isOpaque = false
+                    background = null
+                    viewport.background = null
+                    verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
                 }
                 add(messageScrollPane, BorderLayout.CENTER)
                 
@@ -407,10 +416,28 @@ class MyToolWindowFactory : ToolWindowFactory {
 
                         
                         // 发送按钮
-                        sendButton = ActionLink("").apply {
+//                        sendButton = ActionLink("").apply {
+//                            icon = AllIcons.Actions.Execute
+////                            icon = AllIcons.Actions.Suspend
+//                            toolTipText = "发送 (Enter)"
+//                            setHoveringEnabled(false)
+//                        }
+
+                        sendButton = JButton().apply {
                             icon = AllIcons.Actions.Execute
                             toolTipText = "发送 (Enter)"
+                            isContentAreaFilled = false
+                            isBorderPainted = false
+                            isOpaque = false
+                            border = null
+                            margin = JBUI.emptyInsets()
+                            border = BorderFactory.createEmptyBorder(0, 0, 0, 0)
+                            val iconSize = icon.iconWidth
+                            preferredSize = Dimension(iconSize + 3, iconSize + 3)
+                            maximumSize = Dimension(iconSize + 3, iconSize + 3)
+                            minimumSize = Dimension(iconSize + 3, iconSize+ 3)
                         }
+
                         sendButton.addActionListener {
                             val message = inputField.text.trim()
                             if (message.isNotEmpty()) {
@@ -425,14 +452,8 @@ class MyToolWindowFactory : ToolWindowFactory {
                                 sendMessage(currentMessage)
                             }
                         }
-                        
-                        // 创建一个面板来容纳发送按钮，并设置合适的边距
-                        val sendButtonPanel = JBPanel<JBPanel<*>>().apply {
-                            layout = GridBagLayout()  // 使用 GridBagLayout 实现完全居中
-                            border = JBUI.Borders.empty(5)
-                            add(sendButton)
-                        }
-                        add(sendButtonPanel, BorderLayout.EAST)
+
+                        add(sendButton, BorderLayout.EAST)
                     }
                     
                     add(inputWithButtonPanel, BorderLayout.CENTER)
@@ -636,7 +657,7 @@ class AISettingsConfigurable(project: Project) : Configurable {
             gbc.gridwidth = 2
             gbc.weightx = 1.0
 
-            add(proxyPanel, gbc)
+            proxyPanel?.let { add(it, gbc) }
 
             // 设置代理面板的初始可见性
             proxyPanel?.isVisible = settingsState.proxyType != "none"
