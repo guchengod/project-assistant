@@ -55,7 +55,7 @@ class MyToolWindowFactory : ToolWindowFactory {
             val config = AIServiceConfig(
                 provider = when (settingsState.provider) {
                     "DeepSeek" -> Provider.DEEPSEEK
-                    "OpenAI" -> Provider.OPENAI
+//                    "OpenAI" -> Provider.OPENAI
                     else -> Provider.DEEPSEEK
                 },
                 apiKey = settingsState.apiKey,

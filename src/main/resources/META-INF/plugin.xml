@@ -9,7 +9,10 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.guchengod.projectassistant.toolWindow.MyToolWindowFactory" id="Project Assistant"/>
+        <toolWindow factoryClass="com.github.guchengod.projectassistant.toolWindow.MyToolWindowFactory"
+                    anchor="right"
+                    icon="/META-INF/pluginIcon.svg"
+                    id="Project Assistant"/>
         
         <!-- 添加设置配置 -->
         <projectConfigurable 
