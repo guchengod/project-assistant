@@ -2,6 +2,9 @@ package com.github.guchengod.projectassistant.toolWindow
 
 import com.github.guchengod.projectassistant.common.NotificationUtil
 import com.github.guchengod.projectassistant.services.AIModelService
+import com.github.guchengod.projectassistant.services.AIService
+import com.github.guchengod.projectassistant.services.AIServiceConfig
+import com.github.guchengod.projectassistant.services.Provider
 import com.github.guchengod.projectassistant.settings.AISettingsState
 import com.intellij.icons.AllIcons
 import com.intellij.notification.NotificationType
@@ -25,16 +28,7 @@ import java.awt.*
 import java.awt.event.*
 import javax.swing.*
 import javax.swing.border.AbstractBorder
-import javax.swing.text.BadLocationException
-import javax.swing.text.DefaultStyledDocument
-import javax.swing.text.EditorKit
-import javax.swing.text.StyleConstants
-import javax.swing.text.TabSet
-import javax.swing.text.TabStop
-import javax.swing.text.html.HTMLEditorKit
-import com.github.guchengod.projectassistant.services.AIService
-import com.github.guchengod.projectassistant.services.AIServiceConfig
-import com.github.guchengod.projectassistant.services.Provider
+import javax.swing.text.*
 
 class MyToolWindowFactory : ToolWindowFactory {
     init {
@@ -464,7 +458,7 @@ class AISettingsConfigurable(project: Project) : Configurable {
     private lateinit var aiService:AIService
 
     @NlsContexts.ConfigurableName
-    override fun getDisplayName() = "project assistant"
+    override fun getDisplayName() = "Project Assistant"
 
     override fun createComponent(): JComponent {
         mainPanel = JPanel(GridBagLayout()).apply {
@@ -690,18 +684,9 @@ class AISettingsConfigurable(project: Project) : Configurable {
 
     private fun loadModels() {
         try {
-            val apiKey = apiKeyField?.text ?: ""
-            if (apiKey.isEmpty()) {
-                modelComboBox?.removeAllItems()
-                return
-            }
-            val baseUrl = when (providerComboBox?.selectedItem) {
-                "DeepSeek" -> AIModelService.DEEPSEEK_BASE_URL
-                "OpenAI" -> AIModelService.OPENAI_BASE_URL
-                else -> AIModelService.DEEPSEEK_BASE_URL
-            }
-            
-            val models = modelService.fetchModels(baseUrl, apiKey)
+
+            initializeAIService()
+            val models = aiService.fetchModels()
             modelComboBox?.removeAllItems()
             models.forEach { model ->
                 modelComboBox?.addItem(model.id)
