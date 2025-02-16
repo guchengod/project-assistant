@@ -145,7 +145,7 @@ class MyToolWindowFactory : ToolWindowFactory {
                     }
 
                     val iconStyle = messagePane.addStyle("IconStyle", null)
-                    StyleConstants.setIcon(iconStyle, AllIcons.AiAssistant.AiAssistantColored)
+                    StyleConstants.setIcon(iconStyle, AllIcons.General.Web)
                     doc.insertString(doc.length, " ", iconStyle)
                     doc.insertString(doc.length, "\n", null);
                     // 自动滚动到底部

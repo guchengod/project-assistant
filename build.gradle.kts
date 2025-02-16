@@ -109,6 +109,8 @@ intellijPlatform {
         password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
     }
 
+
+
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
         // The pluginVersion is based on the SemVer (https://semver.org) and supports pre-release labels, like 2.1.7-alpha.3
@@ -118,9 +120,9 @@ intellijPlatform {
     }
 
     pluginVerification {
-//        ides {
+        ides {
 //            recommended()
-//        }
+        }
     }
 }
 

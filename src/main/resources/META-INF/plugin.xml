@@ -8,6 +8,8 @@
 
     <resource-bundle>messages.MyBundle</resource-bundle>
 
+    <idea-version since-build="233.15619"/>
+
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow factoryClass="com.github.guchengod.projectassistant.toolWindow.MyToolWindowFactory"
                     anchor="right"
