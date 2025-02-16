@@ -126,9 +126,7 @@ data class BalanceResponse(
 )
 
 class AIModelService private constructor() {
-    private val gson = Gson()
-    private val jsonMediaType = "application/json".toMediaType()
-    
+
     // 使用 AtomicReference 确保线程安全的客户端引用
     private val clientRef = AtomicReference<OkHttpClient>()
 
