@@ -26,12 +26,12 @@ java {
 
 // Configure project's dependencies
 repositories {
-    maven {
-        setUrl("https://maven.aliyun.com/repository/public/")
-    }
-    maven {
-        setUrl("https://maven.aliyun.com/repository/spring/")
-    }
+//    maven {
+//        setUrl("https://maven.aliyun.com/repository/public/")
+//    }
+//    maven {
+//        setUrl("https://maven.aliyun.com/repository/spring/")
+//    }
     mavenCentral()
 
     // IntelliJ Platform Gradle Plugin Repositories Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-repositories-extension.html
@@ -109,8 +109,6 @@ intellijPlatform {
         password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
     }
 
-
-
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
         // The pluginVersion is based on the SemVer (https://semver.org) and supports pre-release labels, like 2.1.7-alpha.3
@@ -121,7 +119,7 @@ intellijPlatform {
 
     pluginVerification {
         ides {
-//            recommended()
+            recommended()
         }
     }
 }
